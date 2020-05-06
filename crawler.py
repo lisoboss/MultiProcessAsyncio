@@ -2,23 +2,35 @@
 # -*- coding: utf-8 -*-
 
 """
-@Py-V  : 3.7
-@File  : crawler.py
-@Author: lisoboss
+@Py-V  : 3
+@File  : run.py
+@Author: lanliusong
 @Date  : 2020/4/16 16:28
 @Ide   : PyCharm
-@Desc  : 描述...
+@Desc  : 多进程 + 协程 HTTP请求库...
 # pip install aiohttp[speedups]
 """
 
-import time
 import aiohttp
 import asyncio
+from enum import Enum
 from multiprocessing import (
     Pool,
     Manager,
     cpu_count
 )
+
+
+class Method(Enum):
+    CONNECT = 'CONNECT'
+    HEAD = 'HEAD'
+    GET = 'GET'
+    DELETE = 'DELETE'
+    OPTIONS = 'OPTIONS'
+    PATCH = 'PATCH'
+    POST = 'POST'
+    PUT = 'PUT'
+    TRACE = 'TRACE'
 
 
 class Crawler(object):
@@ -48,6 +60,8 @@ class Crawler(object):
 
         self.pool_is_close = False
 
+        self.method = Method
+
     def __getstate__(self):
         self_dict = self.__dict__.copy()
         del self_dict['_pool']
@@ -62,14 +76,28 @@ class Crawler(object):
         if timeout:
             self._timeout = timeout
 
-    def get_http_conf(self, seq=None, url=None, flag=None, rp_callback=None):
+    def get_http_conf(self,
+                      seq: int = None,
+                      method: Method = Method.GET,
+                      url: str = None,
+                      data: dict = None,
+                      json: dict = None,
+                      params: dict = None,
+                      flag: str = None,
+                      rp_callback=None,
+                      allow_redirects: bool = True):
         return {
             'seq': seq,
             'flag': flag,
+            'method': method,
             'url': url,
+            'data': data,
+            'json': json,
+            'params': params,
             'headers': self._headers,
             'timeout': self._timeout,
-            'rp_callback': rp_callback
+            'rp_callback': rp_callback,
+            'allow_redirects': allow_redirects
         }
 
     def get(self, **kwargs):
@@ -78,24 +106,20 @@ class Crawler(object):
 
     def put(self, _item, **kwargs):
         if self.pool_is_close:
-            print('pool_is_close')
             return
         _item = [self._status_task, _item]
         self._queue_task.put(_item, **kwargs)
 
     def queue_over(self, _item=None, **kwargs):
         _item = [self._status_over, _item]
-        # for _i in range(pow(self._pool_number, 2)):
         for _i in range(self._pool_number):
             self._queue_task.put(_item, **kwargs)
 
     def queue_start(self):
-        # for _i in range(pow(self._pool_number, 2)):
         for _i in range(self._pool_number):
             self._queue_run.put(self._status_task)
 
     def queue_exit(self):
-        # for _i in range(pow(self._pool_number, 2)):
         self.pool_is_close = True
         for _i in range(self._pool_number):
             self._queue_run.put(self._status_exit)
@@ -123,27 +147,42 @@ class Crawler(object):
                 break
 
             seq = _value['seq']
+            method = _value['method']
+            if not isinstance(method, str):
+                method = method.value
             url = _value['url']
+            data = _value['data']
+            json = _value['json']
+            params = _value['params']
             flag = _value['flag']
             headers = _value['headers']
             timeout = _value['timeout']
             rp_callback = _value['rp_callback']
+            allow_redirects = _value['allow_redirects']
 
             # print(f'[+] seq => {seq} | url => {url}')
 
-            result_byte = None
+            result = None
             try:
                 timeout = aiohttp.ClientTimeout(total=timeout)
-                async with se.get(url, headers=headers, timeout=timeout, ssl=False) as rp:
+                async with se.request(method=method,
+                                      url=url,
+                                      headers=headers,
+                                      data=data,
+                                      json=json,
+                                      params=params,
+                                      timeout=timeout,
+                                      ssl=False,
+                                      allow_redirects=allow_redirects) as rp:
                     if rp_callback:
-                        result_byte = await rp_callback(rp)
+                        result = await rp_callback(rp)
                     else:
-                        result_byte = await rp.read()
+                        result = await rp.read()
 
             except Exception as e:
                 print(f'[+] seq => {seq} | url => {url} | ben_an_BaseException: {e}')
 
-            self._queue_result.put([self._status_result, [seq, flag, result_byte]])
+            self._queue_result.put([self._status_result, [seq, flag, result]])
             # print(f'[-] seq => {seq} | result_byte_len => {len(result_byte)}')
 
     async def _func_send_asy(self, _async_queue_task):
@@ -178,7 +217,7 @@ class Crawler(object):
                 break
 
             # print(f'[+] _async_run start => {_i}')
-            asyncio.run(self._func_asy_run(_i), debug=True)
+            asyncio.run(self._func_asy_run(_i), debug=False)
             # print(f'[-] _async_run end => {_i}')
 
         # print(f'[-] _func_pool_run end => {_i}')
