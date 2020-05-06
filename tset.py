@@ -3,15 +3,15 @@
 
 """
 @Py-V  : 3
-@File  : tset.py
-@Author: lisoboss
+@File  : 123.py
+@Author: lanliusong
 @Date  : 2020/4/21 18:49
 @Ide   : PyCharm
-@Desc  : 描述...
+@Desc  : 请求库测试...
 """
 
 from aiohttp import ClientResponse
-from . import crawler
+from tools.crawler import Crawler
 
 
 async def bbb(rp: ClientResponse = None):
@@ -22,11 +22,11 @@ async def bbb(rp: ClientResponse = None):
 
 if __name__ == '__main__':
 
-    cwr = crawler.Crawler()
+    cwr = Crawler()
     cwr.run()
 
     for i in range(50):
-        item = cwr.get_http_conf(seq=i, url='https://www.baidu.com', rp_callback=bbb)
+        item = cwr.get_http_conf(seq=i, method=cwr.method.GET, url='https://www.baidu.com', rp_callback=bbb)
         cwr.put(item)
 
     cwr.queue_over()
