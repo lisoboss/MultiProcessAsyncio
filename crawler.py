@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-@Py-V  : 3
-@File  : run.py
-@Author: lanliusong
+@Py-V  : 3.7
+@File  : crawler.py
+@Author: lisoboss
 @Date  : 2020/4/16 16:28
 @Ide   : PyCharm
 @Desc  : 多进程 + 协程 HTTP请求库...
