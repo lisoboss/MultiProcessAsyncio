@@ -70,6 +70,9 @@ class Crawler(object):
     def __setstate__(self, state):
         self.__dict__.update(state)
 
+    def __del__(self):
+        print(f'[-] ==== Crawler Close ====')
+
     def set_http_conf(self, headers=None, timeout=None):
         if headers:
             self._headers = headers
@@ -160,7 +163,7 @@ class Crawler(object):
             rp_callback = _value['rp_callback']
             allow_redirects = _value['allow_redirects']
 
-            # print(f'[+] seq => {seq} | url => {url}')
+            print(f'[+] seq => {seq} | url => {url}')
 
             result = None
             try:
@@ -223,7 +226,7 @@ class Crawler(object):
         # print(f'[-] _func_pool_run end => {_i}')
 
     def run(self):
-        print(f'[+] ==== run start ====')
+        print(f'[+] ==== Crawler Running ====')
         self.queue_start()
 
         for _i in range(self._pool_number):

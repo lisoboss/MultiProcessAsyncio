@@ -11,12 +11,12 @@
 """
 
 from aiohttp import ClientResponse
-from tools.crawler import Crawler
+from crawler import Crawler
 
 
 async def bbb(rp: ClientResponse = None):
     if not rp:
-        return None
+        return "Response Is None"
     # print(1111)
     return await rp.text()
 
@@ -38,3 +38,4 @@ if __name__ == '__main__':
     with open('./out.txt', 'w', encoding='utf-8') as f:
         for i, v in enumerate(values):
             print(i, str(v), file=f)
+            # print(f'{i}, {str(v)}')
