@@ -3,5 +3,5 @@ python 爬虫框架 (多进程+协程)
 
 # install 
 ```shell
-pip install 
+pip install git+https://github.com/lisoboss/MultiProcessAsyncio
 ```

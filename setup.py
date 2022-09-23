@@ -1,5 +1,5 @@
 import sys
-from distutils.core import setup
+from setuptools import setup, find_packages
 
 if sys.version_info < (3, 7):
     raise RuntimeError("aiohttp 4.x requires Python 3.7+")
@@ -10,5 +10,6 @@ setup(name='multi_process_asyncio',
       author='_',
       author_email='_',
       url='_',
+      packages=find_packages(),
       # packages=['distutils', 'distutils.command'],
       )
