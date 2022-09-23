@@ -11,5 +11,4 @@ setup(name='multi_process_asyncio',
       author_email='_',
       url='_',
       packages=find_packages(),
-      # packages=['distutils', 'distutils.command'],
       )
