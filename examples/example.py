@@ -14,8 +14,6 @@ import threading
 import aiohttp
 from multi_process_asyncio.pool import Pool
 
-logging.basicConfig(level=logging.INFO)
-
 
 async def work(item):
     # 声明一个支持异步的上下文管理器
@@ -27,15 +25,18 @@ async def work(item):
 
 def send_task(_pool, tasks):
     for task in tasks:
-        _pool.submit(task)
+        _pool.submit(work, task)
     _pool.input_over()
 
 
 if __name__ == '__main__':
-    pool = Pool(work)
+    logging.basicConfig(level=logging.DEBUG)
+
+    pool = Pool(max_work=1)
     pool.start()
-    se = threading.Thread(target=send_task, args=(list(range(10000)), ))
+    st = threading.Thread(target=send_task, args=(pool, list(range(10000)), ))
+    st.start()
     for i, w in pool.iter():
         print(i, len(w))
-    se.join()
+    st.join()
 

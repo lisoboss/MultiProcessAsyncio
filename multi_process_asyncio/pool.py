@@ -77,12 +77,11 @@ class QueueManager(object):
 
 class Pool(object):
 
-    def __init__(self, async_callback, max_work=cpu_count(), max_sub_work=100):
+    def __init__(self, max_work=cpu_count(), max_sub_work=100):
         self.max_work = max_work
         self.max_sub_work = max_sub_work
         self._queue_manager = QueueManager(max_work, max_sub_work)
         self._pool = _Pool(max_work)
-        self.async_callback = async_callback
         self._input_over = False
 
     def __getstate__(self):
@@ -102,7 +101,8 @@ class Pool(object):
             if item == _Over:
                 self._queue_manager.push_output(item)
                 break
-            self._queue_manager.push_output(await self.async_callback(item))
+            async_callback, args, kwargs = item
+            self._queue_manager.push_output(await async_callback(*args, **kwargs))
 
     async def _async_main(self, _i):
         LOG.debug('[+] _async_main start => %s', _i)
@@ -124,10 +124,10 @@ class Pool(object):
         asyncio.run(self._async_main(_i), debug=False)
         LOG.debug('[+] _work end => %s', _i)
 
-    def submit(self, item):
+    def submit(self, async_callback, *args, **kwargs):
         if self._input_over:
             return print("input is close")
-        return self._queue_manager.push_input(item)
+        return self._queue_manager.push_input((async_callback, args, kwargs))
 
     def input_over(self):
         if self._input_over:
