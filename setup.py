@@ -1,11 +1,11 @@
 import sys
 from setuptools import setup, find_packages
 
-if sys.version_info < (3, 8):
-    raise RuntimeError("requires Python 3.8+")
+if sys.version_info < (3, 6):
+    raise RuntimeError("requires Python 3.6+")
 
 setup(name='multi_process_asyncio',
-      version='1.1.0',
+      version='1.1.1',
       description='_',
       author='_',
       author_email='_',
