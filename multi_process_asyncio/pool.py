@@ -77,12 +77,14 @@ class QueueManager(object):
 
 class Pool(object):
 
-    def __init__(self, max_work=cpu_count(), max_sub_work=100):
-        self.max_work = max_work
+    def __init__(self, max_work=None, max_sub_work=100, async_worker_handle=None):
+        self.max_work = max_work or cpu_count()
         self.max_sub_work = max_sub_work
         self._queue_manager = QueueManager(max_work, max_sub_work)
-        self._pool = _Pool(max_work)
+        self._pool = _Pool(self.max_work)
         self._input_over = False
+
+        self.async_worker_handle = async_worker_handle or self._async_worker_handle
 
     def __getstate__(self):
         self_dict = self.__dict__.copy()
@@ -95,28 +97,32 @@ class Pool(object):
     def __del__(self):
         LOG.info('[-] ==== Pool Close ====')
 
-    async def _async_work(self, queue):
+    async def _async_work(self, queue, **worker_other_kwargs):
         while True:
             item = await queue.get()
             if item == _Over:
                 self._queue_manager.push_output(item)
                 break
             async_callback, args, kwargs = item
-            self._queue_manager.push_output(await async_callback(*args, **kwargs))
+            self._queue_manager.push_output(await async_callback(*args, **kwargs, **worker_other_kwargs))
 
-    async def _async_main(self, _i):
-        LOG.debug('[+] _async_main start => %s', _i)
+    @staticmethod
+    async def _async_worker_handle(_, async_worker):
+        await async_worker({})
+
+    async def _async_worker(self, worker_kwargs: dict):
         queue = asyncio.Queue()
 
         tasks = [asyncio.create_task(self._queue_manager.sync_io(queue))]
 
         for _ in range(self.max_sub_work):
-            tasks.append(asyncio.create_task(self._async_work(queue)))
+            tasks.append(asyncio.create_task(self._async_work(queue, **worker_kwargs)))
 
         await asyncio.gather(*tasks)
 
-        for _task in tasks:
-            _task.cancel()
+    async def _async_main(self, _i):
+        LOG.debug('[+] _async_main start => %s', _i)
+        await self.async_worker_handle(self, self._async_worker)
         LOG.debug('[+] _async_main end => %s', _i)
 
     def _work(self, _i):
