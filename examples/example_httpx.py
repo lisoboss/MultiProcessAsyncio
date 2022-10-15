@@ -3,7 +3,7 @@
 
 """
 @Py-V  : 3
-@File  : example.py
+@File  : example_httpx.py
 @Author: _
 @Date  : 2020/4/21 18:49
 @Ide   : PyCharm
@@ -11,25 +11,27 @@
 """
 import logging
 import threading
-import aiohttp
+import httpx
 from multi_process_asyncio.pool import Pool
 
 
-async def async_worker_handle(self: Pool, async_worker):
+async def async_worker_handle(_: Pool, async_worker):
     # 进程隔离， 每个进程运行一次
     # 声明一个支持异步的上下文管理器
-    async with aiohttp.ClientSession() as session:
-        await async_worker(dict(session=session))
+    async with httpx.AsyncClient(
+            verify=False,
+            timeout=httpx.Timeout(100),
+    ) as client:
+        await async_worker(dict(client=client))
 
 
-async def work(item, session=None):
-    if session is None:
-        print("session is None")
+async def work(item, client: httpx.AsyncClient = None):
+    if client is None:
+        print("client is None")
         exit(-500)
     # 声明一个支持异步的上下文管理器
-    response = await session.get('https://www.baidu.com')
-    text = await response.text()
-    return item, text
+    response = await client.get('https://www.baidu.com')
+    return item, response.text
 
 
 def send_task(_pool, tasks):
@@ -41,11 +43,13 @@ def send_task(_pool, tasks):
 if __name__ == '__main__':
     logging.basicConfig(level=logging.DEBUG)
 
-    pool = Pool(max_work=1, async_worker_handle=async_worker_handle)
+    pool = Pool(async_worker_handle=async_worker_handle, asyncio_debug=True)
     pool.start()
-    st = threading.Thread(target=send_task, args=(pool, list(range(1000)), ))
+
+    st = threading.Thread(target=send_task, args=(pool, list(range(1000)),))
     st.start()
+
     for i, w in pool.iter():
         print(i, len(w))
-    st.join()
 
+    st.join()

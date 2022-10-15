@@ -65,23 +65,23 @@ class QueueManager(object):
 
     async def sync_io(self, _input):
         while True:
-            for _ in range(100):
-                ret = self.pop_input()
-                if ret == _Over:
-                    for _ in range(self.max_sub_work):
-                        await _input.put(ret)
-                    break
-                await _input.put(ret)
-            await asyncio.sleep(0.3)
+            ret = self.pop_input()
+            if ret == _Over:
+                for _ in range(self.max_sub_work):
+                    await _input.put(ret)
+                break
+            await _input.put(ret)
+            await asyncio.sleep(0)
 
 
 class Pool(object):
 
-    def __init__(self, max_work=None, max_sub_work=100, async_worker_handle=None):
+    def __init__(self, max_work=None, max_sub_work=None, async_worker_handle=None, asyncio_debug=False):
         self.max_work = max_work or cpu_count()
-        self.max_sub_work = max_sub_work
-        self._queue_manager = QueueManager(max_work, max_sub_work)
+        self.max_sub_work = max_sub_work or 100
         self._pool = _Pool(self.max_work)
+        self._queue_manager = QueueManager(max_work, max_sub_work)
+        self.asyncio_debug = asyncio_debug
         self._input_over = False
 
         self.async_worker_handle = async_worker_handle or self._async_worker_handle
@@ -127,7 +127,7 @@ class Pool(object):
 
     def _work(self, _i):
         LOG.debug('[+] _work start => %s', _i)
-        asyncio.run(self._async_main(_i), debug=False)
+        asyncio.run(self._async_main(_i), debug=self.asyncio_debug)
         LOG.debug('[+] _work end => %s', _i)
 
     def submit(self, async_callback, *args, **kwargs):
