@@ -15,3 +15,6 @@ from multi_process_asyncio.pool import Pool
 ```shell
 pip uninstall multi_process_asyncio
 ```
+
+# examples
+dir [examples](examples)

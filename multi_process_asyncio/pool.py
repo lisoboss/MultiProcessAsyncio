@@ -8,6 +8,7 @@
 @Date  : 2020/4/16 16:28
 @Ide   : PyCharm
 @Desc  : 多进程 + 协程 HTTP请求库...
+# pip install httpx
 # pip install aiohttp[speedups]
 """
 
@@ -19,47 +20,56 @@ from multiprocessing import (
     Manager,
     cpu_count
 )
+from .httpx import default_client
 
 
 LOG = getLogger(__name__)
 
 
-def logger(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        LOG.debug("%s => args: %s, kwargs: %s", func.__name__, args, kwargs)
-        ret = func(*args, **kwargs)
-        LOG.debug("%s => ret: %s", func.__name__, ret)
-        return ret
-    return wrapper
+def logger(h=True, e=True):
+
+    def logger_func(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            if h:
+                LOG.debug("%s => args: %s, kwargs: %s", func.__name__, args, kwargs)
+            ret = func(*args, **kwargs)
+            if e:
+                LOG.debug("%s => ret: %s", func.__name__, ret)
+            return ret
+        return wrapper
+    return logger_func
 
 
 class _Over:
-    pass
+    def __init__(self):
+        pass
 
 
 class QueueManager(object):
 
     def __init__(self, max_work, max_sub_work):
+        m = Manager()
+
         self.max_work = max_work
         self.max_sub_work = max_sub_work
 
-        self.input = Manager().Queue()
-        self.output = Manager().Queue()
+        self.input = m.Queue()
+        self.output = m.Queue()
 
-    @logger
+    @logger(e=False)
     def push_input(self, *args, **kwargs):
         return self.input.put(*args, **kwargs)
 
-    @logger
+    @logger()
     def push_output(self, *args, **kwargs):
         return self.output.put(*args, **kwargs)
 
-    @logger
+    @logger()
     def pop_input(self, *args, **kwargs):
         return self.input.get(*args, **kwargs)
 
-    @logger
+    @logger(h=False)
     def pop_output(self, *args, **kwargs):
         return self.output.get(*args, **kwargs)
 
@@ -76,15 +86,14 @@ class QueueManager(object):
 
 class Pool(object):
 
-    def __init__(self, max_work=None, max_sub_work=None, async_worker_handle=None, asyncio_debug=False):
+    def __init__(self, max_work=None, max_sub_work=None, async_client=None, asyncio_debug=False):
         self.max_work = max_work or cpu_count()
         self.max_sub_work = max_sub_work or 100
         self._pool = _Pool(self.max_work)
-        self._queue_manager = QueueManager(max_work, max_sub_work)
+        self._queue_manager = QueueManager(self.max_work, self.max_sub_work)
         self.asyncio_debug = asyncio_debug
         self._input_over = False
-
-        self.async_worker_handle = async_worker_handle or self._async_worker_handle
+        self.async_client = async_client or default_client
 
     def __getstate__(self):
         self_dict = self.__dict__.copy()
@@ -97,38 +106,40 @@ class Pool(object):
     def __del__(self):
         LOG.info('[-] ==== Pool Close ====')
 
-    async def _async_work(self, queue, **worker_other_kwargs):
+    async def _async_work(self, queue, client):
         while True:
             item = await queue.get()
             if item == _Over:
                 self._queue_manager.push_output(item)
                 break
             async_callback, args, kwargs = item
-            self._queue_manager.push_output(await async_callback(*args, **kwargs, **worker_other_kwargs))
+            self._queue_manager.push_output(await async_callback(client, *args, **kwargs))
 
-    @staticmethod
-    async def _async_worker_handle(_, async_worker):
-        await async_worker({})
-
-    async def _async_worker(self, worker_kwargs: dict):
+    def _asyncio_set_tasks(self, loop, client, _i):
         queue = asyncio.Queue()
+        loop.create_task(self._queue_manager.sync_io(queue), name=f'Process:{_i}, Task:queue')
 
-        tasks = [asyncio.create_task(self._queue_manager.sync_io(queue))]
-
-        for _ in range(self.max_sub_work):
-            tasks.append(asyncio.create_task(self._async_work(queue, **worker_kwargs)))
-
-        await asyncio.gather(*tasks)
-
-    async def _async_main(self, _i):
-        LOG.debug('[+] _async_main start => %s', _i)
-        await self.async_worker_handle(self, self._async_worker)
-        LOG.debug('[+] _async_main end => %s', _i)
+        for _ii in range(self.max_sub_work):
+            loop.create_task(self._async_work(queue, client=client), name=f'Process:{_i}, Task:{_ii + 1}')
 
     def _work(self, _i):
-        LOG.debug('[+] _work start => %s', _i)
-        asyncio.run(self._async_main(_i), debug=self.asyncio_debug)
-        LOG.debug('[+] _work end => %s', _i)
+        client = self.async_client()
+        assert client, "session is None"
+
+        loop = asyncio.new_event_loop()
+        loop.set_debug(self.asyncio_debug)
+
+        if asyncio.iscoroutine(client):
+            client = loop.run_until_complete(client)
+
+        aclient = loop.run_until_complete(client.__aenter__())
+
+        self._asyncio_set_tasks(loop, aclient, _i)
+        try:
+            loop.run_forever()
+        finally:
+            loop.run_until_complete(client.__aexit__())
+            loop.close()
 
     def submit(self, async_callback, *args, **kwargs):
         if self._input_over:
