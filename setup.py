@@ -5,8 +5,8 @@ if sys.version_info < (3, 10):
     raise RuntimeError("requires Python 3.10+")
 
 setup(name='multi_process_asyncio',
-      version='1.3.0.uncertainty-task',
-      description='_',
+      version='1.3.0',
+      description='uncertainty task',
       author='_',
       author_email='_',
       url='_',
