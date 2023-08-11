@@ -144,13 +144,13 @@ class Pool(object):
                 self._queue_manager.push_output(item)
                 break
             async_callback, args, kwargs = item
-            err = None
             try:
                 result = await async_callback(client, *args, **kwargs)
+                self._queue_manager.push_output((result, None))
             except Exception as err:
                 result = (args, kwargs)
                 LOG.error("err: %s, args: %s, kwargs: %s", err, args, kwargs)
-            self._queue_manager.push_output((result, err))
+                self._queue_manager.push_output((result, err))
 
     def _asyncio_set_tasks(self, loop, client, _i):
         queue = asyncio.Queue()
