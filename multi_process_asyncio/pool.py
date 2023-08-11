@@ -13,6 +13,7 @@
 """
 
 import asyncio
+import ctypes
 from logging import getLogger
 from functools import wraps
 from multiprocessing import (
@@ -22,12 +23,10 @@ from multiprocessing import (
 )
 from .httpx import default_client
 
-
 LOG = getLogger(__name__)
 
 
 def logger(h=True, e=True):
-
     def logger_func(func):
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -37,7 +36,9 @@ def logger(h=True, e=True):
             if e:
                 LOG.debug("%s => ret: %s", func.__name__, ret)
             return ret
+
         return wrapper
+
     return logger_func
 
 
@@ -57,8 +58,12 @@ class QueueManager(object):
         self.input = m.Queue()
         self.output = m.Queue()
 
+        self.input_size = m.Value(ctypes.c_int, 0)
+        self.output_size = m.Value(ctypes.c_int, 0)
+
     @logger(e=False)
     def push_input(self, *args, **kwargs):
+        self.input_size.value += 1
         return self.input.put(*args, **kwargs)
 
     @logger()
@@ -67,26 +72,48 @@ class QueueManager(object):
 
     @logger()
     def pop_input(self, *args, **kwargs):
-        return self.input.get(*args, **kwargs)
+        try:
+            return self.input.get_nowait(*args, **kwargs)
+        except:
+            pass
 
     @logger(h=False)
     def pop_output(self, *args, **kwargs):
-        return self.output.get(*args, **kwargs)
+        try:
+            result = self.output.get_nowait(*args, **kwargs)
+        except:
+            result = None
+
+        if result:
+            self.output_size.value += 1
+            self.whether_exit()
+        return result
+
+    def whether_exit(self):
+        if self.input_size.value == self.output_size.value:
+            for _ in range(self.max_work):
+                self.push_input(_Over)
 
     async def sync_io(self, _input):
         while True:
             ret = self.pop_input()
-            if ret == _Over:
-                for _ in range(self.max_sub_work):
-                    await _input.put(ret)
-                break
-            await _input.put(ret)
-            await asyncio.sleep(0)
+            if ret:
+                if ret == _Over:
+                    for _ in range(self.max_sub_work):
+                        await _input.put(ret)
+                    break
+                await _input.put(ret)
+                await asyncio.sleep(0)
+            else:
+                await asyncio.sleep(0.3)
 
 
 class Pool(object):
 
-    def __init__(self, max_work=None, max_sub_work=None, async_client=None, asyncio_debug=False):
+    def __init__(self,
+                 async_tasks, async_pipline_successful, async_pipline_error,
+                 max_work=None, max_sub_work=None,
+                 async_client=None, asyncio_debug=False):
         self.max_work = max_work or cpu_count()
         self.max_sub_work = max_sub_work or 100
         self._pool = _Pool(self.max_work)
@@ -94,6 +121,10 @@ class Pool(object):
         self.asyncio_debug = asyncio_debug
         self._input_over = False
         self.async_client = async_client or default_client
+
+        self.async_tasks = async_tasks
+        self.async_pipline_successful = async_pipline_successful
+        self.async_pipline_error = async_pipline_error
 
     def __getstate__(self):
         self_dict = self.__dict__.copy()
@@ -113,7 +144,13 @@ class Pool(object):
                 self._queue_manager.push_output(item)
                 break
             async_callback, args, kwargs = item
-            self._queue_manager.push_output(await async_callback(client, *args, **kwargs))
+            err = None
+            try:
+                result = await async_callback(client, *args, **kwargs)
+            except Exception as err:
+                result = (args, kwargs)
+                LOG.error("err: %s, args: %s, kwargs: %s", err, args, kwargs)
+            self._queue_manager.push_output((result, err))
 
     def _asyncio_set_tasks(self, loop, client, _i):
         queue = asyncio.Queue()
@@ -141,19 +178,10 @@ class Pool(object):
             loop.run_until_complete(client.__aexit__())
             loop.close()
 
-    def submit(self, async_callback, *args, **kwargs):
-        if self._input_over:
-            return print("input is close")
+    async def submit(self, async_callback, *args, **kwargs):
         return self._queue_manager.push_input((async_callback, args, kwargs))
 
-    def input_over(self):
-        if self._input_over:
-            return print("input is true")
-        self._input_over = True
-        for _ in range(self.max_work):
-            self._queue_manager.push_input(_Over)
-
-    def iter(self):
+    async def iter(self):
         i = 0
         n = self.max_work * self.max_sub_work
         while i < n:
@@ -161,10 +189,35 @@ class Pool(object):
             if ret == _Over:
                 i += 1
                 continue
-            yield ret
+            if ret:
+                yield ret
+            else:
+                await asyncio.sleep(0.3)
 
-    def start(self):
+    async def _async_send_task(self):
+        async for func, args, kwargs in self.async_tasks():
+            await self.submit(func, *args, **kwargs)
+
+    async def _async_pipline(self):
+        async for result, err in self.iter():
+            if err:
+                args, kwargs = result
+                _result = await self.async_pipline_error(err, *args, **kwargs)
+                if _result is not None:
+                    func, args, kwargs = _result
+                    await self.submit(func, *args, **kwargs)
+            else:
+                await self.async_pipline_successful(*result)
+
+    async def _async_run(self):
+        await self._async_send_task()
+        await self._async_pipline()
+
+    def run(self):
         LOG.info('[+] ==== Pool Running ====')
         for _i in range(self.max_work):
             self._pool.apply_async(func=self._work, args=(_i + 1,))
         self._pool.close()
+
+        LOG.info('[+] ==== Pool Main Asyncio Running ====')
+        asyncio.run(self._async_run(), debug=self.asyncio_debug)

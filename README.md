@@ -3,7 +3,7 @@ python 爬虫框架 (多进程+协程)
 
 # install 
 ```shell
-pip install git+https://github.com/lisoboss/MultiProcessAsyncio
+pip install git+https://github.com/lisoboss/MultiProcessAsyncio@uncertainty-task
 ```
 
 # import
